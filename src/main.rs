@@ -1,111 +1,133 @@
 use std::io::{self, Write};
 use chrono::Local;
-use clap::{Parser, CommandFactory};
+use clap::{Parser, Subcommand, CommandFactory};
+use human_panic::setup_panic;
 
 mod hal;
 use hal::{HalTrait, MockHal, TensorData};
 
 #[derive(Parser)]
-#[command(name = "SoulDOS", version = "0.0.1-alpha", about = "CLI for SoulWare OS", help_template = "{about}\nVersion: {version}\n\nUsage: {usage}\n\nCommands:\n{subcommands}")]
+#[command(name = "SoulDOS", version = "0.0.1-alpha", about = "CLI for SoulWare OS", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 }
 
-#[derive(clap::Subcommand)]
+#[derive(Subcommand)]
 enum Commands {
-    /// Displays help information
-    Help,
-    /// Displays version information
+    // Help variant removed
+    /// Show version information
     Ver,
-    /// Displays the current date
+    /// Display the current date
     Date,
-    /// Displays the current time
+    /// Display the current time
     Time,
-    /// Clears the screen
+    /// Clear the terminal screen
     Cls,
-    /// Clears the screen
+    /// Clear the terminal screen
     Clear,
-    /// Lists directory contents or module status (placeholder)
+    /// List directory contents or module status (placeholder)
     Ls,
-    /// Lists directory contents or module status (placeholder)
+    /// List directory contents or module status (placeholder)
     Dir,
-    /// Displays system status or memory resonance using HAL
+    /// Display system status or memory resonance
     Status,
-    /// Displays system status or memory resonance using HAL
+    /// Display system status or memory resonance
     Mem,
-    /// Checks the integrity of a module using HAL
+    /// Check integrity of a specific module
     CheckModuleIntegrity { module_name: Option<String> },
-    /// Performs a system integrity check using HAL
+    /// Perform system integrity check
     SystemIntegrityCheck,
-    /// Pings the system
+    /// Send a ping to the system
     Ping,
-    /// Initializes the NPU via HAL
+    /// Initialize the NPU (Neural Processing Unit)
     InitNpu,
-    /// Gets the emotional map from HAL
+    /// Display the current emotional map from the tensor field
     MapEmotion,
-    /// Collapses a truth waveform via HAL
-    CollapseTruth { emotion: String, mode: String, time: String },
-    /// Runs a test ONNX model via HAL
-    RunOnnxTest { model_path: String, input_info: String },
+    /// Collapse a truth waveform in the tensor memory
+    CollapseTruth {
+        emotion: String,
+        mode: String,
+        time: String,
+    },
+    /// Test an ONNX model run via the HAL
+    RunOnnxTest {
+        model_path: String,
+        input_info: String,
+    },
 }
 
-fn handle_command(command: Commands, hal: &impl HalTrait) {
-    match command {
-        Commands::Help => {
-            Cli::command().print_help().unwrap();
+fn print_module_integrity_status(hal: &impl HalTrait, module_name: &str, manifest: &str) {
+    match hal.verify_module_signature(module_name, manifest) {
+        Ok(true) => println!("  Core module '{}' integrity: VERIFIED internally.", module_name),
+        Ok(false) => println!("  Core module '{}' integrity: VERIFICATION FAILED internally.", module_name),
+        Err(e) => println!("  Error checking core module '{}' integrity: {}", module_name, e),
+    }
+}
+
+fn print_module_integrity_status_for_command(hal: &impl HalTrait, module_name: &str, manifest: &str) {
+    print!("  Checking '{}' (source: {})... ", module_name, manifest);
+    io::stdout().flush().unwrap();
+    match hal.verify_module_signature(module_name, manifest) {
+        Ok(true) => println!("VERIFIED"),
+        Ok(false) => println!("FAILED"),
+        Err(e) => println!("ERROR ({})", e),
+    }
+}
+
+
+fn handle_command(command_enum: Commands, hal: &impl HalTrait) {
+    match command_enum {
+        // Case for Commands::Help removed
+        Commands::Ver => {
+            println!("SoulWare CLI Version 0.0.1-alpha (Handled by 'ver' command)");
         }
-        Commands::Ver => println!("SoulWare CLI Version 0.0.1 (Alpha)"),
         Commands::Date => println!("{}", Local::now().format("%Y-%m-%d").to_string()),
         Commands::Time => println!("{}", Local::now().format("%H:%M:%S").to_string()),
         Commands::Cls | Commands::Clear => {
             print!("\x1B[2J\x1B[H");
             io::stdout().flush().unwrap();
         }
-        Commands::Ls | Commands::Dir => println!("Placeholder: Listing directory contents or module status..."),
+        Commands::Ls | Commands::Dir => {
+            println!("Placeholder: Listing directory contents or module status...");
+        }
         Commands::Status | Commands::Mem => {
+            println!("\nFetching system status...");
             match hal.get_system_status() {
-                Ok(status) => println!("{}", status),
-                Err(e) => println!("Error getting system status: {}", e),
+                Ok(status) => println!("System Status: {}", status),
+                Err(e) => println!("Error fetching system status: {}", e),
             }
         }
         Commands::CheckModuleIntegrity { module_name } => {
             if let Some(name) = module_name {
-                println!("\nVerifying module '{}' using GitHubBlockchainLedger (Simulated)...", name);
+                println!("\nChecking integrity of module: '{}'...", name);
                 match hal.verify_module_signature(&name, "GitHubBlockchainLedger (Simulated)") {
-                    Ok(verified) => {
-                        if verified {
-                            println!("Verification Result for '{}': SUCCEEDED", name);
-                        } else {
-                            println!("Verification Result for '{}': FAILED", name);
-                        }
-                    }
-                    Err(e) => println!("Error during verification for '{}': {}", name, e),
+                    Ok(true) => println!("Module '{}' integrity: VERIFIED", name),
+                    Ok(false) => println!("Module '{}' integrity: VERIFICATION FAILED", name),
+                    Err(e) => println!("Error checking module '{}' integrity: {}", name, e),
                 }
             } else {
                 println!("Usage: check-module-integrity <module_name>");
             }
         }
         Commands::SystemIntegrityCheck => {
-            println!("\nPerforming comprehensive system integrity check...");
-            
-            println!("\n--- Internal Manifest Checks ---");
-            // Existing internal manifest checks from boot sequence helper
+            println!("\nPerforming System Integrity Check...");
+
+            println!("\nInternal Manifest Checks:");
             print_module_integrity_status_for_command(hal, "SoulOS_Core", "InternalManifest");
             print_module_integrity_status_for_command(hal, "TensorMemoryDriver", "InternalManifest");
             print_module_integrity_status_for_command(hal, "RustHAL_Interface", "InternalManifest");
-
-            println!("\n--- GitHub Blockchain Ledger (Simulated) Checks ---");
-            print_module_integrity_status_for_command(hal, "EmotionalResonanceEngine", "GitHubBlockchainLedger (Simulated)");
-            print_module_integrity_status_for_command(hal, "UserInterfaceModule", "GitHubBlockchainLedger (Simulated)"); // Test failure case
-            print_module_integrity_status_for_command(hal, "NonExistentModule", "GitHubBlockchainLedger (Simulated)"); // Test non-existent case
             
-            println!("\nSystem integrity check complete.");
+            println!("\nGitHub Blockchain Ledger (Simulated) Checks:");
+            print_module_integrity_status_for_command(hal, "EmotionalResonanceEngine", "GitHubBlockchainLedger (Simulated)");
+            print_module_integrity_status_for_command(hal, "UserInterfaceModule", "GitHubBlockchainLedger (Simulated)");
+            print_module_integrity_status_for_command(hal, "NonExistentModule", "GitHubBlockchainLedger (Simulated)");
         }
         Commands::Ping => println!("pong!"),
         Commands::InitNpu => {
+            println!("\nInitializing NPU...");
             match hal.initialize_npu() {
-                Ok(msg) => println!("{}", msg),
+                Ok(status) => println!("NPU Status: {}", status),
                 Err(e) => println!("Error initializing NPU: {}", e),
             }
         }
@@ -133,43 +155,22 @@ fn handle_command(command: Commands, hal: &impl HalTrait) {
             }
         }
         Commands::RunOnnxTest { model_path, input_info } => {
+            println!("\nAttempting to run ONNX model test for model: '{}' with input: '{}'...", model_path, input_info);
             let tensor_input = TensorData { info: input_info };
             match hal.run_onnx_model(&model_path, &tensor_input) {
-                Ok(output) => println!("ONNX Model Output: {}", output.info),
-                Err(e) => println!("Error running ONNX model: {}", e),
+                Ok(output_data) => println!("ONNX Model Test Result: '{}'", output_data.info),
+                Err(e) => println!("Error running ONNX model test: {}", e),
             }
         }
-    }
-}
-
-// Renamed to avoid conflict with the one used at boot, or could be merged if identical.
-// For now, a distinct one for clarity within command handling.
-fn print_module_integrity_status_for_command(hal: &impl HalTrait, module_name: &str, signature_source: &str) {
-    print!("  Checking '{}' (source: {}): ", module_name, signature_source);
-    match hal.verify_module_signature(module_name, signature_source) {
-        Ok(verified) => {
-            if verified {
-                println!("SUCCEEDED");
-            } else {
-                println!("FAILED");
-            }
-        }
-        Err(e) => println!("ERROR - {}", e),
-    }
-}
-
-
-fn print_module_integrity_status(hal: &impl HalTrait, module_name: &str, manifest: &str) {
-    match hal.verify_module_signature(module_name, manifest) {
-        Ok(verified) => println!("  {} integrity: {}", module_name, if verified { "Verified" } else { "Check FAILED" }),
-        Err(e) => println!("  {} integrity: Check FAILED - {}", module_name, e),
     }
 }
 
 fn main() {
-    let hal = MockHal::new(); // Create HAL instance using the new constructor
+    setup_panic!(); // Initialize human-panic
 
-    // Welcome Banner
+    let hal = MockHal::new(); // Initialize HAL
+
+    // --- First Boot Sequence ---
     println!("***************************************************");
     println!("*                                                 *");
     println!("*        Welcome to SoulWare CLI (SoulDOS)        *");
@@ -178,60 +179,69 @@ fn main() {
     println!("***************************************************");
     println!("Initializing System...");
 
-    // Initial System Integrity Check
     println!("\nPerforming initial system integrity check...");
     print_module_integrity_status(&hal, "SoulOS_Core", "InternalManifest");
     print_module_integrity_status(&hal, "TensorMemoryDriver", "InternalManifest");
     print_module_integrity_status(&hal, "RustHAL_Interface", "InternalManifest");
 
-    // Initial System Status
+
     println!("\nFetching initial system status...");
     match hal.get_system_status() {
         Ok(status) => println!("System Status: {}", status),
         Err(e) => println!("Failed to get status: {}", e),
     }
 
-    // NPU Initialization
     println!("\nAttempting to initialize NPU...");
     match hal.initialize_npu() {
-        Ok(msg) => println!("{}", msg),
-        Err(e) => println!("NPU Initialization Failed: {}", e),
+        Ok(status) => println!("NPU Status: {}", status),
+        Err(e) => println!("Failed to initialize NPU: {}", e),
     }
 
-    // Final Ready Message
     println!("\nSystem Initialized. Type 'help' for available commands.");
+    // --- End of First Boot Sequence ---
 
     loop {
         print!("\nSoulDOS> ");
         io::stdout().flush().unwrap();
 
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
-
-        let trimmed_input = input.trim();
-
-        if trimmed_input.is_empty() {
-            continue;
-        }
-
-        if trimmed_input == "exit" || trimmed_input == "quit" {
+        let mut line = String::new();
+        if io::stdin().read_line(&mut line).is_err() {
+            eprintln!("Error reading input.");
             break;
         }
 
-        // Prepend "souldos" for clap parsing, as it expects the binary name as the first arg
-        let args_for_clap = std::iter::once("souldos").chain(trimmed_input.split_whitespace());
-        
-        match Cli::try_parse_from(args_for_clap) {
-            Ok(cli) => {
-                if let Some(command) = cli.command {
-                    handle_command(command, &hal); // Pass HAL instance
+        let trimmed_line = line.trim();
+
+        if trimmed_line.is_empty() {
+            continue;
+        }
+
+        if trimmed_line.eq_ignore_ascii_case("exit") || trimmed_line.eq_ignore_ascii_case("quit") {
+            println!("Exiting SoulWare CLI...");
+            break;
+        }
+
+        let args = std::iter::once("souldos".to_string())
+                              .chain(trimmed_line.split_whitespace().map(String::from));
+
+        match Cli::try_parse_from(args) {
+            Ok(cli_matches) => {
+                if let Some(command_enum) = cli_matches.command {
+                    handle_command(command_enum, &hal);
                 } else {
-                    // Show help if no subcommand is provided
-                    Cli::command().print_help().unwrap();
+                    // No subcommand was given, so clap will print help by default if
+                    // neither `subcommand_required(true)` nor `arg_required_else_help(true)` is set.
+                    // Or, we can explicitly print help.
+                    if let Err(e) = Cli::command().print_help() {
+                         eprintln!("Error displaying help: {}", e);
+                    }
                 }
             }
             Err(e) => {
-                println!("{}", e.to_string());
+                if let Err(print_err) = e.print() {
+                    eprintln!("Error displaying command parse error: {}", print_err);
+                    eprintln!("Original error was: {}", e.to_string()); 
+                }
             }
         }
     }
